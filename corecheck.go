@@ -40,10 +40,8 @@ func main() {
 		fullname := filepath.Join(*dir, f.Name())
 
 		if filepath.Ext(fullname) != ".md" {
-			log.Printf("[INFO] Skipping %s", fullname)
 			continue
 		}
-		log.Printf("[INFO] Checking %s", fullname)
 		if err := checkCorefiles(fullname); err != nil {
 			log.Printf("[WARNING] %s", err)
 		}
@@ -73,6 +71,8 @@ func checkCorefiles(readme string) error {
 		server.Stop()
 		port++
 	}
+	log.Printf("[INFO] Checking %d snippets in %s: OK", len(inputs), readme)
+
 	return nil
 }
 
