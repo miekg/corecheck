@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/mholt/caddy"
@@ -92,6 +93,7 @@ func corefileFromFile(file string) ([]*Input, error) {
 
 	for s.Scan() {
 		line := s.Text()
+		line = strings.TrimSpace(line)
 		if line == "~~~ corefile" || line == "``` corefile" {
 			corefile = true
 			continue
