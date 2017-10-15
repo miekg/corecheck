@@ -7,10 +7,10 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/coredns/coredns/core/dnsserver"
-
 	"github.com/mholt/caddy"
 )
 
@@ -23,21 +23,28 @@ import (
 // }
 // ~~~
 
-var dir = flag.String("dir", ".", "directory to crawl")
+var dir = flag.String("dir", ".", "directory to scan for .md files")
 
 func main() {
 	flag.Parse()
-	log.SetOutput(ioutil.Discard)
 
 	files, err := ioutil.ReadDir(*dir)
 	if err != nil {
 		log.Fatalf("[FATAL] Could not read %s: %q", *dir, err)
 	}
 	for _, f := range files {
-		if !f.IsDir() {
+		if f.IsDir() {
 			continue
 		}
-		if err := checkCorefiles(f.Name()); err != nil {
+
+		fullname := filepath.Join(*dir, f.Name())
+
+		if filepath.Ext(fullname) != ".md" {
+			log.Printf("[INFO] Skipping %s", fullname)
+			continue
+		}
+		log.Printf("[INFO] Checking %s", fullname)
+		if err := checkCorefiles(fullname); err != nil {
 			log.Printf("[WARNING] %s", err)
 		}
 	}
@@ -51,6 +58,9 @@ func checkCorefiles(readme string) error {
 	inputs, err := corefileFromFile(readme)
 	if err != nil {
 		return err
+	}
+	if len(inputs) == 0 {
+		return nil
 	}
 
 	// Test each snippet.
