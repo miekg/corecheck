@@ -4,15 +4,14 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-
-	"github.com/coredns/coredns/core/dnsserver"
-	"github.com/mholt/caddy"
+	"time"
 )
 
 // Parse all README.md's of the plugin and check if every example Corefile
@@ -24,7 +23,10 @@ import (
 // }
 // ~~~
 
-var dir = flag.String("dir", ".", "directory to scan for .md files")
+var (
+	dir = flag.String("dir", ".", "directory to scan for .md files")
+	exe = flag.String("exe", "./coredns", "path to coredns executable")
+)
 
 func main() {
 	flag.Parse()
@@ -43,17 +45,11 @@ func main() {
 		if filepath.Ext(fullname) != ".md" {
 			continue
 		}
-		if err := checkCorefiles(fullname); err != nil {
-			log.Printf("[WARNING] %s", err)
-		}
+		checkCorefiles(fullname)
 	}
 }
 
 func checkCorefiles(readme string) error {
-	port := 30053
-	caddy.Quiet = true
-	dnsserver.Quiet = true
-
 	inputs, err := corefileFromFile(readme)
 	if err != nil {
 		return err
@@ -63,23 +59,52 @@ func checkCorefiles(readme string) error {
 	}
 
 	// Test each snippet.
+	fail := 0
+	fmt.Printf("Checking %d snippets in %s\n", len(inputs), readme)
 	for _, in := range inputs {
-		dnsserver.Port = strconv.Itoa(port)
-		server, err := caddy.Start(in)
+		buf := make([]byte, 2048)
+
+		server, out, err := coreStart(*exe, in)
+		n, _ := out.Read(buf)
+		buf = buf[:n]
+
 		if err != nil {
-			fmt.Errorf("Failed to start server with %s, for input %q:\n%s", readme, err, in.Body())
+			fmt.Printf("Failed to start server with %s, for input %q:\n%s\n", readme, err, in)
+			fail++
+			continue
 		}
-		server.Stop()
-		port++
+
+		go func() {
+			err := server.Wait()
+			if err != nil {
+				// yech, but so be it
+				if strings.Contains(err.Error(), "signal: killed") {
+					// OK, killed below.
+					return
+				}
+				if strings.Contains(string(buf), "KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined") {
+					// OK, need to be running in k8s cluster
+					return
+				}
+				fmt.Printf("Failed to start server with %s, for input %q: standand error %q\n%s\n", readme, err, string(buf), in)
+				fail++
+			}
+		}()
+		time.Sleep(500 * time.Millisecond)
+		server.Process.Kill()
 	}
-	log.Printf("[INFO] Checking %d snippets in %s: OK", len(inputs), readme)
+	if fail > 0 {
+		fmt.Printf("\tFAIL: %d snippets in %s: %d failed\n", len(inputs), readme, fail)
+	} else {
+		fmt.Printf("\tPASS: %d snippets in %s\n", len(inputs), readme)
+	}
 
 	return nil
 }
 
 // corefileFromFile parses a file and returns all fragments that
 // have ~~~ corefile (or ``` corefile).
-func corefileFromFile(file string) ([]*Input, error) {
+func corefileFromFile(file string) ([]string, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -87,7 +112,7 @@ func corefileFromFile(file string) ([]*Input, error) {
 	defer f.Close()
 
 	s := bufio.NewScanner(f)
-	input := []*Input{}
+	input := []string{}
 	corefile := false
 	temp := ""
 
@@ -101,7 +126,7 @@ func corefileFromFile(file string) ([]*Input, error) {
 
 		if corefile && (line == "~~~" || line == "```") {
 			// last line
-			input = append(input, NewInput(temp))
+			input = append(input, temp)
 
 			temp = ""
 			corefile = false
@@ -117,4 +142,19 @@ func corefileFromFile(file string) ([]*Input, error) {
 		return nil, err
 	}
 	return input, nil
+}
+
+const conffile = "/tmp/corefile-readme"
+
+func coreStart(path, conf string) (*exec.Cmd, io.ReadCloser, error) {
+	err := ioutil.WriteFile(conffile, []byte(conf), 0640)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cmd := exec.Command(path, "-conf", conffile, "-dns.port", "0")
+
+	out, _ := cmd.StderrPipe()
+
+	return cmd, out, cmd.Start()
 }
