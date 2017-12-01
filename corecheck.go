@@ -71,6 +71,7 @@ func checkCorefiles(readme string) error {
 		if err != nil {
 			fmt.Printf("Failed to start server with %s, for input %q:\n%s\n", readme, err, in)
 			fail++
+			server.Process.Kill()
 			continue
 		}
 
