@@ -88,7 +88,7 @@ func checkCorefiles(readme string) error {
 					// OK, need to be running in k8s cluster
 					return
 				}
-				log.Printf("Failed to start server with %s, for input %q: standand error %q\n%s\n", readme, err, string(buf), in)
+				log.Printf("Failed to start server with %s, for input %q: standard error %q\n%s\n", readme, err, string(buf), in)
 				fail++
 			}
 		}()
