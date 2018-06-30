@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"flag"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -60,24 +59,26 @@ func checkCorefiles(readme string) error {
 
 	// Test each snippet.
 	fail := 0
-	fmt.Printf("Checking %d snippets in %s\n", len(inputs), readme)
+	log.Printf("Checking %d snippets in %s\n", len(inputs), readme)
 	for _, in := range inputs {
 		buf := make([]byte, 2048)
 
 		server, out, err := coreStart(*exe, in)
-		n, _ := out.Read(buf)
-		buf = buf[:n]
 
 		if err != nil {
-			fmt.Printf("Failed to start server with %s, for input %q:\n%s\n", readme, err, in)
+			log.Printf("Failed to start server with %s, for input %q:\n%s\n", readme, err, in)
 			fail++
 			server.Process.Kill()
 			continue
+		} else {
+			log.Printf("Successfully started server")
 		}
 
 		go func() {
 			err := server.Wait()
 			if err != nil {
+				n, _ := out.Read(buf)
+				buf = buf[:n]
 				// yech, but so be it
 				if strings.Contains(err.Error(), "signal: killed") {
 					// OK, killed below.
@@ -87,17 +88,18 @@ func checkCorefiles(readme string) error {
 					// OK, need to be running in k8s cluster
 					return
 				}
-				fmt.Printf("Failed to start server with %s, for input %q: standand error %q\n%s\n", readme, err, string(buf), in)
+				log.Printf("Failed to start server with %s, for input %q: standand error %q\n%s\n", readme, err, string(buf), in)
 				fail++
 			}
 		}()
 		time.Sleep(500 * time.Millisecond)
+		log.Printf("Killing server %d", server.Process.Pid)
 		server.Process.Kill()
 	}
 	if fail > 0 {
-		fmt.Printf("\tFAIL: %d snippets in %s: %d failed\n", len(inputs), readme, fail)
+		log.Printf("\tFAIL: %d snippets in %s: %d failed\n", len(inputs), readme, fail)
 	} else {
-		fmt.Printf("\tPASS: %d snippets in %s\n", len(inputs), readme)
+		log.Printf("\tPASS: %d snippets in %s\n", len(inputs), readme)
 	}
 
 	return nil
@@ -154,6 +156,7 @@ func coreStart(path, conf string) (*exec.Cmd, io.ReadCloser, error) {
 	}
 
 	cmd := exec.Command(path, "-conf", conffile, "-dns.port", "0")
+	log.Printf("Starting %v", cmd.Args)
 
 	out, _ := cmd.StderrPipe()
 
